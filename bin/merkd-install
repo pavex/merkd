@@ -52,7 +52,7 @@ $config = new Config($cfg, $root);
 
 $errors = 0;
 
-// ── 1. Directories ────────────────────────────────────────────────────────────
+// 1. Directories
 
 echo "Directories:\n";
 
@@ -81,7 +81,7 @@ foreach ($dirs as $label => $path) {
     }
 }
 
-// ── 2. Database ───────────────────────────────────────────────────────────────
+// 2. Database
 
 echo "\nDatabase:\n";
 
@@ -117,7 +117,7 @@ else {
     }
 }
 
-// ── 3. PHP extensions ─────────────────────────────────────────────────────────
+// 3. PHP extensions
 
 echo "\nExtensions:\n";
 
@@ -137,7 +137,7 @@ foreach ($extensions as $ext => $desc) {
     }
 }
 
-// ── 4. AVIF support ───────────────────────────────────────────────────────────
+// 4. AVIF support
 
 echo "\nImage formats:\n";
 
@@ -161,7 +161,7 @@ else {
     echo "  [SKIP] GD not loaded — cannot check image formats\n";
 }
 
-// ── Summary ───────────────────────────────────────────────────────────────────
+// Summary
 
 echo "\n";
 if ($errors === 0) {

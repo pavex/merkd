@@ -31,8 +31,8 @@ Content pipelines for file-driven CMS systems usually involve one of two bad tra
 ## How it fits together
 
 ```
-content/*.md  ──→  merkd-build (CLI)  ──→  merkd.sqlite  ──→  pavex/merkd  ──→  templates
-  (your files)      (this package)         (database)         (client)
+content/*.md  --→  merkd-build (CLI)  --→  merkd.sqlite  --→  pavex/merkd  --→  templates
+(your files)       (this package)          (database)         (client)
 ```
 
 This package is the **write side**. It reads `.md` files and writes to the database. The `pavex/merkd` client is the read side — it never touches the filesystem.
