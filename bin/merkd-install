@@ -1,0 +1,174 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * merkd-install — Installation and environment check for Merkd
+ *
+ * Verifies directories, installs the SQLite database from schema,
+ * and checks required PHP extensions.
+ *
+ * Usage:
+ *   php vendor/bin/merkd-install
+ *
+ * @author pavex@ines.cz
+ */
+
+$autoload_candidates = [
+    $GLOBALS['_composer_autoload_path'] ?? null,
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+
+$autoloaded = false;
+foreach ($autoload_candidates as $candidate) {
+    if ($candidate && file_exists($candidate)) {
+        require_once $candidate;
+        $autoloaded = true;
+        break;
+    }
+}
+if (!$autoloaded) {
+    fwrite(STDERR, "ERROR: composer autoload not found. Run: composer install\n");
+    exit(1);
+}
+
+use Merkd\Builder\Config;
+
+echo "merkd-install — Merkd environment check & install\n\n";
+
+// Locate project root.
+$root = getcwd();
+while ($root !== dirname($root)) {
+    if (file_exists($root . DIRECTORY_SEPARATOR . 'config.php')) {
+        break;
+    }
+    $root = dirname($root);
+}
+
+$configFile = $root . DIRECTORY_SEPARATOR . 'config.php';
+$cfg = is_file($configFile) ? (require $configFile) : [];
+$cfg = is_array($cfg) && isset($cfg['merkd']) ? $cfg['merkd'] : [];
+$config = new Config($cfg, $root);
+
+$errors = 0;
+
+// ── 1. Directories ────────────────────────────────────────────────────────────
+
+echo "Directories:\n";
+
+$dirs = [
+    'content'    => $config->content_dir,
+    'db'         => dirname($config->db_path),
+    'public_dir' => $config->public_dir,
+];
+
+foreach ($dirs as $label => $path) {
+    if (!is_dir($path)) {
+        if (!mkdir($path, 0755, true)) {
+            echo "  [ERROR] $label: $path (cannot create)\n";
+            $errors++;
+            continue;
+        }
+        echo "  [CREATED] $label: $path\n";
+    }
+    elseif (!is_writable($path)) {
+        echo "  [ERROR] $label: $path (not writable)\n";
+        $errors++;
+        continue;
+    }
+    else {
+        echo "  [OK] $label: $path\n";
+    }
+}
+
+// ── 2. Database ───────────────────────────────────────────────────────────────
+
+echo "\nDatabase:\n";
+
+$schemaFile = __DIR__ . '/../db/schema.sql';
+
+if (!is_file($schemaFile)) {
+    echo "  [ERROR] schema not found: $schemaFile\n";
+    $errors++;
+}
+elseif (is_file($config->db_path)) {
+    echo "  [OK] already exists: {$config->db_path}\n";
+}
+else {
+    try {
+        $pdo = new PDO('sqlite:' . $config->db_path);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo->exec('PRAGMA journal_mode = WAL');
+        $pdo->exec('PRAGMA foreign_keys = ON');
+
+        $sql = file_get_contents($schemaFile);
+        // Execute statements one by one — PDO::exec handles multiple only in some drivers.
+        foreach (array_filter(array_map('trim', explode(';', $sql))) as $stmt) {
+            if ($stmt !== '') {
+                $pdo->exec($stmt);
+            }
+        }
+
+        echo "  [INSTALLED] {$config->db_path}\n";
+    }
+    catch (Throwable $e) {
+        echo "  [ERROR] install failed: " . $e->getMessage() . "\n";
+        $errors++;
+    }
+}
+
+// ── 3. PHP extensions ─────────────────────────────────────────────────────────
+
+echo "\nExtensions:\n";
+
+$extensions = [
+    'pdo_sqlite' => 'SQLite database support',
+    'gd'         => 'image processing (resize, convert)',
+    'fileinfo'   => 'MIME type detection',
+];
+
+foreach ($extensions as $ext => $desc) {
+    if (extension_loaded($ext)) {
+        echo "  [OK] $ext — $desc\n";
+    }
+    else {
+        echo "  [MISSING] $ext — $desc\n";
+        $errors++;
+    }
+}
+
+// ── 4. AVIF support ───────────────────────────────────────────────────────────
+
+echo "\nImage formats:\n";
+
+if (extension_loaded('gd')) {
+    $info = gd_info();
+    $jpg  = !empty($info['JPEG Support']);
+    $avif = !empty($info['AVIF Support']);
+    $webp = !empty($info['WebP Support']);
+    $png  = !empty($info['PNG Support']);
+
+    echo '  [' . ($jpg  ? 'OK' : 'NO') . "] JPEG\n";
+    echo '  [' . ($png  ? 'OK' : 'NO') . "] PNG\n";
+    echo '  [' . ($webp ? 'OK' : 'NO') . "] WebP\n";
+    echo '  [' . ($avif ? 'OK' : 'WARN') . "] AVIF" . ($avif ? '' : ' (optional — JPG fallback will be used)') . "\n";
+
+    if (!$jpg) {
+        $errors++;
+    }
+}
+else {
+    echo "  [SKIP] GD not loaded — cannot check image formats\n";
+}
+
+// ── Summary ───────────────────────────────────────────────────────────────────
+
+echo "\n";
+if ($errors === 0) {
+    echo "All checks passed. Run: composer merkd -- --build\n";
+    exit(0);
+}
+else {
+    echo "Completed with $errors error(s). Fix the issues above before building.\n";
+    exit(1);
+}

@@ -1,0 +1,112 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * merkd-build — Markdown content builder for Merkd
+ *
+ * Usage:
+ *   merkd-build --build
+ *   merkd-build --build --force
+ *   merkd-build --build --reset
+ *   merkd-build --build --db <path> --content <path> --lang <lang>
+ *   merkd-build --help
+ *
+ * @author pavex@ines.cz
+ */
+
+$autoload_candidates = [
+    $GLOBALS['_composer_autoload_path'] ?? null,
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+
+$autoloaded = false;
+foreach ($autoload_candidates as $candidate) {
+    if ($candidate && file_exists($candidate)) {
+        require_once $candidate;
+        $autoloaded = true;
+        break;
+    }
+}
+if (!$autoloaded) {
+    fwrite(STDERR, "ERROR: composer autoload not found. Run: composer install\n");
+    exit(1);
+}
+
+use Pavex\Utils\GetOpt;
+use Merkd\Builder\Config;
+use Merkd\Builder\BuildContainer;
+use Merkd\Builder\Build;
+
+$opt = new GetOpt();
+$opt->set('build',   'b', 'build',   GetOpt::MODE_DEFAULT, 'Run the full build pipeline (content + images)');
+$opt->set('force',   'f', 'force',   GetOpt::MODE_DEFAULT, 'Force rebuild of all files, ignoring change detection');
+$opt->set('reset',   'r', 'reset',   GetOpt::MODE_DEFAULT, 'Wipe asset dir and truncate DB, then run full rebuild');
+$opt->set('db',      'd', 'db',      GetOpt::MODE_REQUIRE, 'Path to SQLite database (overrides config.php)');
+$opt->set('content', 'c', 'content', GetOpt::MODE_REQUIRE, 'Path to content directory (overrides config.php)');
+$opt->set('public',  'p', 'public',  GetOpt::MODE_REQUIRE, 'Path to public output directory (overrides config.php)');
+$opt->set('lang',    'l', 'lang',    GetOpt::MODE_REQUIRE, 'Default language (overrides config.php)');
+$opt->set('help',    'h', 'help',    GetOpt::MODE_DEFAULT, 'Show this help');
+$opt->validate();
+
+if ($opt->has('help') || !$opt->has('build')) {
+    echo "merkd-build — Markdown content builder for Merkd\n\n";
+    echo "Usage:\n";
+    echo "  php vendor/bin/merkd-build --build\n";
+    echo "  php vendor/bin/merkd-build --build --force\n";
+    echo "  php vendor/bin/merkd-build --build --reset\n";
+    echo "  php vendor/bin/merkd-build --build --content path/to/content --db path/to/merkd.sqlite\n\n";
+    echo "Options:\n";
+    echo $opt->help();
+    echo "\nDefaults are read from the merkd section in config.php found by walking up from cwd.\n";
+    exit(0);
+}
+
+// Locate project root.
+$root = getcwd();
+while ($root !== dirname($root)) {
+    if (file_exists($root . DIRECTORY_SEPARATOR . 'config.php')) {
+        break;
+    }
+    $root = dirname($root);
+}
+
+$configFile = $root . DIRECTORY_SEPARATOR . 'config.php';
+$cfg = is_file($configFile) ? (require $configFile) : [];
+$cfg = is_array($cfg) && isset($cfg['merkd']) ? $cfg['merkd'] : [];
+
+if ($opt->has('db')) {
+    $cfg['db'] = $opt->get('db', GetOpt::TYPE_STRING);
+}
+if ($opt->has('content')) {
+    $cfg['content_dir'] = $opt->get('content', GetOpt::TYPE_STRING);
+}
+if ($opt->has('public')) {
+    $cfg['public_dir'] = $opt->get('public', GetOpt::TYPE_STRING);
+}
+if ($opt->has('lang')) {
+    $cfg['lang'] = $opt->get('lang', GetOpt::TYPE_STRING);
+}
+
+$config = new Config($cfg, $root);
+
+if (!is_dir($config->content_dir)) {
+    fwrite(STDERR, "ERROR: Content directory not found: {$config->content_dir}\n");
+    exit(1);
+}
+if (!is_file($config->db_path)) {
+    fwrite(STDERR, "ERROR: Database not found: {$config->db_path}\n  Run: php vendor/bin/merkd-install\n");
+    exit(1);
+}
+
+echo "merkd-build — Markdown content builder for Merkd\n\n";
+
+$container = new BuildContainer($config);
+$build = new Build($container);
+$build->setOutput(function(string $line): void { echo $line . "\n"; });
+$build->run(
+    force: $opt->has('force') || $opt->has('reset'),
+    reset: $opt->has('reset')
+);
+
+exit(0);

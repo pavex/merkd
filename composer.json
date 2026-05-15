@@ -1,0 +1,26 @@
+{
+    "name": "pavex/merkd-build",
+    "description": "Markdown content builder for Merkd — parses .md files with YAML front-matter and publishes them to SQLite",
+    "version": "1.0.0",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "pavex",
+            "email": "pavex@ines.cz"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "erusev/parsedown": "^1.7",
+        "symfony/yaml": "^6.0",
+        "pavex/utils": "*",
+        "pavex/getopt": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Merkd\\Builder\\": "src/Merkd/Builder/"
+        }
+    },
+    "bin": ["bin/merkd-build", "bin/merkd-install"]
+}
