@@ -11,26 +11,11 @@
 
 namespace Merkd\Builder\Datastore;
 
-use Merkd\Builder\Datastore\Dataset\SourceDataset;
 use Merkd\Builder\Record\SourceRecord;
 
 
 final class BuildPdoDatastore extends PdoDatastore implements BuildDatastoreInterface
 {
-
-
-    public function findBySlugLang(string $slug, string $lang): ?SourceDataset
-    {
-        $statement = $this->pdo->prepare(
-            'SELECT slug, lang, hash FROM documents WHERE slug = :slug AND lang = :lang LIMIT 1'
-        );
-        $statement->execute([':slug' => $slug, ':lang' => $lang]);
-
-        if ($row = $statement->fetch()) {
-            return SourceDataset::fromResult($row);
-        }
-        return null;
-    }
 
 
     public function insert(SourceRecord $source): void
@@ -91,6 +76,23 @@ final class BuildPdoDatastore extends PdoDatastore implements BuildDatastoreInte
             WHERE slug = :slug AND lang = :lang
         ");
         $statement->execute($this->bind($source));
+    }
+
+
+    public function upsert(SourceRecord $source): string
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT 1 FROM documents WHERE slug = :slug AND lang = :lang LIMIT 1'
+        );
+        $statement->execute([':slug' => $source->slug, ':lang' => $source->lang]);
+
+        if ($statement->fetchColumn()) {
+            $this->update($source);
+            return 'updated';
+        }
+
+        $this->insert($source);
+        return 'added';
     }
 
 

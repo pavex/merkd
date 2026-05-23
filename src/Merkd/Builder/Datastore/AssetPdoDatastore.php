@@ -64,9 +64,12 @@ final class AssetPdoDatastore extends PdoDatastore implements AssetDatastoreInte
     }
 
 
-    public function markAllDeleted(): void
+    public function restoreDeleted(string $relative_url): void
     {
-        $this->pdo->exec('UPDATE assets SET is_deleted = 1');
+        $statement = $this->pdo->prepare(
+            'UPDATE assets SET is_deleted = 0 WHERE relative_url = :url'
+        );
+        $statement->execute([':url' => $relative_url]);
     }
 
 
@@ -77,6 +80,21 @@ final class AssetPdoDatastore extends PdoDatastore implements AssetDatastoreInte
             VALUES (:slug, :lang, :asset_url)
         ');
         $statement->execute([':slug' => $slug, ':lang' => $lang, ':asset_url' => $asset_url]);
+    }
+
+
+    public function markOrphanAssetsDeleted(): void
+    {
+        $this->pdo->exec("
+            UPDATE assets SET is_deleted = 1
+            WHERE relative_url NOT IN (
+                SELECT da.asset_url
+                FROM document_assets da
+                JOIN documents d
+                    ON d.slug = da.document_slug AND d.lang = da.document_lang
+                WHERE d.is_deleted = 0
+            )
+        ");
     }
 
 

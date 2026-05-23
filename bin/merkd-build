@@ -6,8 +6,8 @@
  *
  * Usage:
  *   merkd-build --build
- *   merkd-build --build --force
  *   merkd-build --build --reset
+ *   merkd-build --build --force    (alias for --reset, retained for compatibility)
  *   merkd-build --build --db <path> --content <path> --lang <lang>
  *   merkd-build --help
  *
@@ -40,8 +40,8 @@ use Merkd\Builder\Build;
 
 $opt = new GetOpt();
 $opt->set('build',   'b', 'build',   GetOpt::MODE_DEFAULT, 'Run the full build pipeline (content + images)');
-$opt->set('force',   'f', 'force',   GetOpt::MODE_DEFAULT, 'Force rebuild of all files, ignoring change detection');
 $opt->set('reset',   'r', 'reset',   GetOpt::MODE_DEFAULT, 'Wipe asset dir and truncate DB, then run full rebuild');
+$opt->set('force',   'f', 'force',   GetOpt::MODE_DEFAULT, 'Alias for --reset (retained for compatibility)');
 $opt->set('db',      'd', 'db',      GetOpt::MODE_REQUIRE, 'Path to SQLite database (overrides config.php)');
 $opt->set('content', 'c', 'content', GetOpt::MODE_REQUIRE, 'Path to content directory (overrides config.php)');
 $opt->set('public',  'p', 'public',  GetOpt::MODE_REQUIRE, 'Path to public output directory (overrides config.php)');
@@ -53,7 +53,6 @@ if ($opt->has('help') || !$opt->has('build')) {
     echo "merkd-build — Markdown content builder for Merkd\n\n";
     echo "Usage:\n";
     echo "  php vendor/bin/merkd-build --build\n";
-    echo "  php vendor/bin/merkd-build --build --force\n";
     echo "  php vendor/bin/merkd-build --build --reset\n";
     echo "  php vendor/bin/merkd-build --build --content path/to/content --db path/to/merkd.sqlite\n\n";
     echo "Options:\n";
@@ -101,12 +100,11 @@ if (!is_file($config->db_path)) {
 
 echo "merkd-build — Markdown content builder for Merkd\n\n";
 
+$reset = $opt->has('reset') || $opt->has('force');
+
 $container = new BuildContainer($config);
 $build = new Build($container);
 $build->setOutput(function(string $line): void { echo $line . "\n"; });
-$build->run(
-    force: $opt->has('force') || $opt->has('reset'),
-    reset: $opt->has('reset')
-);
+$build->run(reset: $reset);
 
 exit(0);

@@ -3,12 +3,12 @@
 /**
  * Processes a single .md file — parses content and persists to DB.
  *
- * Owns the asset callback: for every local image encountered during parsing,
- * it ensures the document stub exists in DB first (FK), processes the asset,
- * then links document→asset — satisfying both FK constraints on document_assets.
+ * Every document is always fully parsed and upserted — no hash-based skip.
+ * Hash check is retained only for assets (ImageProcessor is expensive).
  *
- * Image paths in MD are relative to the MD file location.
- * Generated variants are written to public_dir/asset_dir/ + relative_url.
+ * Owns the asset callback: for every local image encountered during parsing,
+ * it ensures the document stub exists in DB first (FK), processes the asset
+ * if changed, then links document→asset.
  *
  * Build::run() collects files and calls build() per document.
  *
@@ -62,15 +62,15 @@ final class ContentBuilder extends AbstractBuilder
 
 
     /**
-     * Parses and persists a single .md file.
+     * Parses and upserts a single .md file.
      *
-     * @param bool $force When true, skips hash comparison.
+     * Always fully processes the document — no hash-based skip.
+     * Asset processing retains hash check (ImageProcessor is expensive).
      */
-    public function build(string $file_path, bool $force = false): BuildResult
+    public function build(string $file_path): BuildResult
     {
         $buildResult = new BuildResult();
 
-        // Asset callback captures the MD file's directory — images are resolved relative to it.
         $md_dir = dirname($file_path);
 
         $parser = new FileParser($this->config);
@@ -87,26 +87,11 @@ final class ContentBuilder extends AbstractBuilder
             return $buildResult;
         }
 
-        $existing = $this->buildDatastore->findBySlugLang($source->slug, $source->lang);
-
-        if (!$force && $existing !== null && $existing->hash === $source->hash) {
-            $this->log('-> skipped: ' . $source->slug . ' [' . $source->lang . '] (unchanged)');
-            $buildResult->skipped++;
-            return $buildResult;
-        }
-
         $dataset = SourceDataset::fromRecord($source);
+        $action = $this->buildDatastore->upsert($dataset);
 
-        if ($existing !== null) {
-            $this->buildDatastore->update($dataset);
-            $this->log('-> updated: ' . $source->slug . ' [' . $source->lang . ']');
-            $buildResult->updated++;
-        }
-        else {
-            $this->buildDatastore->insert($dataset);
-            $this->log('-> added: ' . $source->slug . ' [' . $source->lang . ']');
-            $buildResult->added++;
-        }
+        $this->log('-> ' . $action . ': ' . $source->slug . ' [' . $source->lang . ']');
+        $buildResult->{$action}++;
 
         return $buildResult;
     }
@@ -117,11 +102,8 @@ final class ContentBuilder extends AbstractBuilder
      *
      * Order enforced to satisfy document_assets FK constraints:
      *   1. insertStub()                  — document row exists (FK → documents)
-     *   2. insert/update asset           — asset row exists   (FK → assets)
+     *   2. restoreDeleted() or process   — asset row exists and is_deleted = 0 (FK → assets)
      *   3. insertDocumentAssetBinding()  — both FKs satisfied
-     *
-     * Source file is resolved relative to the MD file directory ($md_dir).
-     * Output is written to public_dir/asset_dir/ preserving the relative_url structure.
      *
      * @return ImageResult|null ImageResult on success (used by MerkdParsedown for <picture>), null on error.
      */
@@ -133,10 +115,11 @@ final class ContentBuilder extends AbstractBuilder
         // 1. Ensure document stub exists (FK on document_assets → documents).
         $this->buildDatastore->insertStub($slug, $lang);
 
-        // Deduplicate — if already processed this run, asset is in DB, safe to link.
+        // Deduplicate — asset already processed this run, restore + link.
         if (isset($this->processedAssets[$relative_path])) {
             $existing = $this->assetDatastore->findByRelativeUrl($relativeUrl);
             if ($existing !== null) {
+                $this->assetDatastore->restoreDeleted($relativeUrl);
                 $this->assetDatastore->insertDocumentAssetBinding($slug, $lang, $relativeUrl);
                 return $this->imageResultFromAsset($existing);
             }
@@ -144,7 +127,6 @@ final class ContentBuilder extends AbstractBuilder
         }
         $this->processedAssets[$relative_path] = true;
 
-        // Resolve source file relative to the MD file's directory.
         $filePath = $md_dir . DIRECTORY_SEPARATOR
             . str_replace('/', DIRECTORY_SEPARATOR, $relative_path);
 
@@ -158,12 +140,13 @@ final class ContentBuilder extends AbstractBuilder
 
         if ($existing !== null && $existing->hash === $hash) {
             $this->log('-> skipped asset: ' . $relative_path . ' (unchanged)');
-            // 2+3. Asset already in DB — link.
+            // 2. Asset unchanged — restore is_deleted = 0 and link.
+            $this->assetDatastore->restoreDeleted($relativeUrl);
             $this->assetDatastore->insertDocumentAssetBinding($slug, $lang, $relativeUrl);
             return $this->imageResultFromAsset($existing);
         }
 
-        // 2. Process and persist asset before linking.
+        // 2. Asset new or changed — process and persist.
         $imageResult = $this->processImage($filePath, $relative_path);
 
         if ($imageResult === null) {
@@ -181,7 +164,7 @@ final class ContentBuilder extends AbstractBuilder
             $this->log('-> added asset: ' . $relative_path);
         }
 
-        // 3. Both stub and asset exist — safe to link.
+        // 3. Both stub and asset exist with is_deleted = 0 — safe to link.
         $this->assetDatastore->insertDocumentAssetBinding($slug, $lang, $relativeUrl);
 
         return $imageResult;

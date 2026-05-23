@@ -27,11 +27,18 @@ interface AssetDatastoreInterface
     /** Updates an existing asset record, setting is_deleted = 0. */
     public function update(AssetRecord $asset): void;
 
-    /** Marks all assets as deleted — called at the start of each build. */
-    public function markAllDeleted(): void;
+    /** Restores a single asset to is_deleted = 0 — used when asset is unchanged (hash match). */
+    public function restoreDeleted(string $relative_url): void;
 
     /** Inserts a document→asset relationship (INSERT OR IGNORE). */
     public function insertDocumentAssetBinding(string $slug, string $lang, string $asset_url): void;
+
+    /**
+     * Marks assets as is_deleted = 1 when they have no reference
+     * from any active (is_deleted = 0) document.
+     * Called at the end of each build.
+     */
+    public function markOrphanAssetsDeleted(): void;
 
     /** Physically deletes all rows — used by --reset before full rebuild. */
     public function truncate(): void;

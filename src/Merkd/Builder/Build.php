@@ -3,21 +3,21 @@
 /**
  * Central entry point — orchestrates the full build pipeline.
  *
- * Three build modes:
+ * Every .md file is always fully parsed and upserted — no hash-based skip for documents.
+ * Asset hash check is retained (ImageProcessor is expensive).
  *
- *   Normal build:
- *     - marks all documents and assets as is_deleted = 1
- *     - processes changed files (hash check), sets is_deleted = 0
- *
- *   --force:
- *     - same as normal but skips hash check — rewrites all records
+ * Build modes:
+ *   Normal / --force:
+ *     - marks all documents is_deleted = 1 at start
+ *     - parses and upserts every document (sets is_deleted = 0)
+ *     - assets: hash check, restores is_deleted = 0 if unchanged, reprocesses if changed
+ *     - at end: marks orphan assets is_deleted = 1
+ *     (--force is now equivalent to normal — retained for CLI compatibility)
  *
  *   --reset:
- *     - wipes contents of public asset dir (keeps the dir itself — preserves permissions)
+ *     - wipes public asset directory contents (dir preserved — permissions kept)
  *     - truncates DB tables
- *     - then runs as --force
- *
- * Client reads only is_deleted = 0 records.
+ *     - then runs full build
  *
  * @author    pavex@ines.cz
  * @copyright 2026 Pavel Macháček
@@ -47,14 +47,13 @@ final class Build extends AbstractBuilder
     }
 
 
-    public function run(bool $force = false, bool $reset = false): BuildResult
+    public function run(bool $reset = false): BuildResult
     {
         $buildResult = new BuildResult();
         $config = $this->container->getConfig();
 
-        $mode = $reset ? 'Reset' : ($force ? 'Force' : 'Normal');
         $this->log('Build:');
-        $this->log('  mode:       ' . $mode);
+        $this->log('  mode:       ' . ($reset ? 'Reset' : 'Normal'));
         $this->log('  db:         ' . $config->db_path);
         $this->log('  content:    ' . $config->content_dir);
         $this->log('  asset_dir:  ' . $config->asset_dir);
@@ -79,8 +78,6 @@ final class Build extends AbstractBuilder
             $this->container->getBuildDatastore()->truncate();
             $this->container->getAssetDatastore()->truncate();
             $this->log('-> done.');
-
-            $force = true;
         }
 
         if (!extension_loaded('gd')) {
@@ -98,9 +95,8 @@ final class Build extends AbstractBuilder
             return $buildResult;
         }
 
-        // Mark all existing records as deleted — build will restore processed ones.
+        // Mark all documents as deleted — build will restore processed ones to is_deleted = 0.
         $this->container->getBuildDatastore()->markAllDeleted();
-        $this->container->getAssetDatastore()->markAllDeleted();
 
         $files = $this->collectFiles($config->content_dir);
 
@@ -116,8 +112,11 @@ final class Build extends AbstractBuilder
         $contentBuilder->reset();
 
         foreach ($files as $file_path) {
-            $buildResult->merge($contentBuilder->build($file_path, $force));
+            $buildResult->merge($contentBuilder->build($file_path));
         }
+
+        // Mark assets that have no active document reference as deleted.
+        $this->container->getAssetDatastore()->markOrphanAssetsDeleted();
 
         $this->log(sprintf("\nDone — added: %d, updated: %d, skipped: %d",
             $buildResult->added, $buildResult->updated, $buildResult->skipped
@@ -129,9 +128,7 @@ final class Build extends AbstractBuilder
 
     /**
      * Removes all contents of a directory but keeps the directory itself.
-     *
-     * The directory is preserved intentionally — filesystem permissions are set
-     * once on the directory and must not be lost on --reset.
+     * The directory is preserved — filesystem permissions are not lost on --reset.
      */
     private function clearDirContents(string $dir): void
     {
@@ -149,7 +146,6 @@ final class Build extends AbstractBuilder
                 @unlink($item->getRealPath());
             }
             elseif ($item->isDir()) {
-                // Only remove subdirectories — never the root asset dir itself.
                 @rmdir($item->getRealPath());
             }
         }
@@ -174,6 +170,7 @@ final class Build extends AbstractBuilder
                 $files[] = $file->getRealPath();
             }
         }
+
         sort($files);
         return $files;
     }
