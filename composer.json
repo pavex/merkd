@@ -1,6 +1,6 @@
 {
-    "name": "pavex/merkd-build",
-    "description": "Markdown content builder for Merkd — parses .md files with YAML front-matter and publishes them to SQLite",
+    "name": "pavex/merkd",
+    "description": "Merkd — Markdown-based CMS for Pavex websites. Includes content builder, image processor and SQLite client.",
     "version": "1.0.0",
     "type": "library",
     "license": "MIT",
@@ -15,7 +15,8 @@
         "erusev/parsedown": "^1.7",
         "symfony/yaml": "^6.0",
         "pavex/utils": "*",
-        "pavex/getopt": "*"
+        "pavex/getopt": "*",
+        "pavex/merkd-client": "*"
     },
     "autoload": {
         "psr-4": {
