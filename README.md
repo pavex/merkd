@@ -31,7 +31,7 @@ composer require pavex/merkd
 
 ```
 content/*.md  --→  merkd (CLI builder)  --→  merkd.sqlite  --→  merkd-client  --→  templates
-  (your files)      (this package)            (database)         (included)
+(your files)       (this package)            (database)         (included)
 ```
 
 The builder is the write side. The client (`pavex/merkd-client`, included as a dependency) is the read side — it never writes to the database or touches the filesystem.
