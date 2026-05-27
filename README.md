@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/merkd-logo.png" alt="Merkd logo" width="500">
+</p>
+
 # pavex/merkd
 
 **Merkd is a lightweight, file-driven CMS for PHP applications.** Write content in Markdown, run one command, and your content is compiled into a SQLite database with responsive image variants — ready to serve at full speed.
@@ -26,7 +30,7 @@ composer require pavex/merkd
 ## How it fits together
 
 ```
-content/*.md  ──→  merkd (CLI builder)  ──→  merkd.sqlite  ──→  merkd-client  ──→  templates
+content/*.md  --→  merkd (CLI builder)  --→  merkd.sqlite  --→  merkd-client  --→  templates
   (your files)      (this package)            (database)         (included)
 ```
 
